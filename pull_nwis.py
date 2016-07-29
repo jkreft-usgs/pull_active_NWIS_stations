@@ -26,7 +26,55 @@ site_types_dict = {"ES": "Estuary",
                    "ST-CA": "Canal",
                    "ST-DCH": "Ditch",
                    "ST-TS": "Tidal stream",
-                   "WE": "Wetland"}
+                   "WE": "Wetland",
+                   "GW": "Well",
+                   "GW-CR": "Collector or Ranney type well",
+                   "GW-EX": "Extensometer well",
+                   "GW-HZ": "Hyporheic-zone well",
+                   "GW-IW": "Interconnected wells",
+                   "GW-MW": "Multiple wells",
+                   "GW-TH": "Test hole not completed as a well",
+                   "SB": "Subsurface",
+                   "SB-CV": "Cave",
+                   "SB-GWD": "Groundwater drain",
+                   "SB-TSM": "Tunnel, shaft, or mine",
+                   "SB-UZ": "Unsaturated zone",
+                   "SP": "Spring",
+                   "AT": "Atmosphere",
+                   "AG": "Aggregate groundwater use",
+                   "AS": "Aggregate surface-water-use",
+                   "AW": "Aggregate water-use establishment",
+                   "FA": "Facility",
+                   "FA-AWL": "Animal waste lagoon",
+                   "FA-CI": "Cistern",
+                   "FA-CS": "Combined sewer",
+                   "FA-DV": "Diversion",
+                   "FA-FON": "Field, Pasture, Orchard, or Nursery",
+                   "FA-GC": "Golf course",
+                   "FA-HP": "Hydroelectric plant",
+                   "FA-LF": "Landfill",
+                   "FA-OF": "Outfall",
+                   "FA-PV": "Pavement",
+                   "FA-QC": "Laboratory or sample-preparation area",
+                   "FA-SEW": "Wastewater sewer",
+                   "FA-SPS": "Septic system",
+                   "FA-STS": "Storm sewer",
+                   "FA-TEP": "Thermoelectric plant",
+                   "FA-WDS": "Water-distribution system",
+                   "FA-WIW": "Waste injection well",
+                   "FA-WTP": "Water-supply treatment plant",
+                   "FA-WWD": "Wastewater land application",
+                   "FA-WWTP": "Wastewater-treatment plant",
+                   "FA-WU": "Water-use establishment",
+                   "GL": "Glacier",
+                   "LA": "Land",
+                   "LA-EX": "Excavation",
+                   "LA-OU": "Outcrop",
+                   "LA-PLY": "Playa",
+                   "LA-SH": "Soil hole",
+                   "LA-SNK": "Sinkhole",
+                   "LA-SR": "Shore",
+                   "LA-VOL": "Volcanic vent"}
 
 
 def process_nwis_data(content):
@@ -91,7 +139,8 @@ def build_sites_geojson(sites_data, site_types):
 
 def pull_nwis_data(huc_list):
     """
-
+    This pulls NWIS site data, one HUC at a time, and returns a list of geojson feature objects
+    that can be fed into a feature collection building tool
     :param huc_list:
     :return:
     """
@@ -118,7 +167,9 @@ def pull_nwis_data(huc_list):
 
 def pull_nwis_data_stream(huc_list):
     """
-
+    This pulls NWIS site data, one HUC at a time, and returns a list of geojson feature objects
+    that can be fed into a feature collection building tool.  However, it parses the returned RDB as a stream instead of
+    waiting to download the entire file for each HUC.
     :param huc_list:
     :return:
     """
@@ -156,6 +207,52 @@ def pull_nwis_data_stream(huc_list):
         print('finished huc '+huc+' ('+str(r.status_code)+')')
 
     return total_site_list
+
+def pull_nwis_data_generator(huc_list):
+    """
+    This pulls NWIS site data, one HUC at a time, and returns a list of geojson feature objects
+    that can be fed into a feature collection building tool.  However, it parses the returned RDB as a stream instead of
+    waiting to download the entire file for each HUC. It then yields that geojson object one at a time so that
+    something else can do something with it
+    :param huc_list:
+    :return:
+    """
+    base_params = {'format': 'rdb',
+                   'siteType': 'ST',
+                   'siteStatus': 'active',
+                   'hasDataTypeCd': 'iv,dv',
+                   }
+    s = Session()
+    total_site_list = []
+    for huc in huc_list:
+        params = deepcopy(base_params)
+        params['huc'] = huc
+        r = s.get('http://waterservices.usgs.gov/nwis/site/', params=params,
+                  headers={'Accept-Encoding': 'gzip,deflate'}, stream=True)
+        if r.status_code == 200:
+            dataset = tablib.Dataset()
+            comments = True
+            definitions = True
+            for line in r.iter_lines():
+                li = line.strip()
+                if li.startswith("#"):  # lets ignore comments
+                    pass
+                elif comments and not (li.startswith("#")):  # first row after the comments in the rdb are column headings
+                    comments = False
+                    headers = li.split('\t')
+                    dataset.headers = headers
+                elif comments == False and definitions == True:  # ok now we need to ignore the useless data definitions
+                    definitions = False
+                elif comments == False and definitions == False:  # finally we are adding data together
+                    row = li.split('\t')
+                    dataset.append(row)
+                    feature = build_sites_geojson(dataset, site_types_dict)
+                    if feature:
+                        yield feature[0]
+                    dataset.pop()
+        print('finished huc '+huc+' ('+str(r.status_code)+')')
+
+
 
 def build_feature_collection(huc_list):
     nwis_feature_list = pull_nwis_data_stream(huc_list)
