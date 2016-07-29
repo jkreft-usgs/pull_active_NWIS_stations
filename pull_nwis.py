@@ -139,7 +139,6 @@ def pull_nwis_data_stream(huc_list):
             comments = True
             definitions = True
             for line in r.iter_lines():
-                print line
                 li = line.strip()
                 if li.startswith("#"):  # lets ignore comments
                     pass
@@ -159,7 +158,6 @@ def pull_nwis_data_stream(huc_list):
     return total_site_list
 
 def build_feature_collection(huc_list):
-    #nwis_feature_list = pull_nwis_data(huc_list)
     nwis_feature_list = pull_nwis_data_stream(huc_list)
     station_collection = FeatureCollection(nwis_feature_list, crs={"properties": {"name": "urn:ogc:def:crs:EPSG::4326"},
                                                                    "type": "name"})
@@ -176,5 +174,5 @@ def build_geojson_file(huc_list):
 
 
 #pull_nwis_data_stream(one_8_digit_huc)
-build_geojson_file(big_huc_list)
+#build_geojson_file(big_huc_list)
 #build_geojson_file(two_8_digit_hucs)
