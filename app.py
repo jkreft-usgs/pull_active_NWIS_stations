@@ -1,8 +1,7 @@
-import json
-from flask import Flask, Response
+from flask import Flask, Response, request, make_response
 from geojson import dumps as geojson_dump
 from pull_nwis import pull_nwis_data_stream, pull_nwis_data_generator
-
+from requests import head
 
 
 app = Flask(__name__)
@@ -30,6 +29,7 @@ def generate_geojson_from_list(feature_list):
         prev_feature = feature
     # Now yield the last iteration without comma but with the closing brackets
     yield geojson_dump(prev_feature) + ']}'
+
 
 def generate_geojson_from_generator(huc_list):
     """
@@ -72,5 +72,27 @@ def poc():
 def poc_stream():
     return Response(generate_geojson_from_generator(['01', '02', '03']), content_type='application/json')
 
+@app.route("/sites/")
+def sites():
+    print
+    print request.args
+    args = dict(request.args)
+    print args
+    args['format'] = 'rdb'
+    major_arguments_list = ['sites','stateCD','huc','bBox','countyCd']
+    if any(k in major_arguments_list for k in args.iterkeys()):
+        print args
+        nwis_head = head('http://waterservices.usgs.gov/nwis/site/', params=args)
+        if nwis_head.status_code == 200:
+            return Response(generate_geojson_from_generator(args), content_type='application/json')
+        else:
+            # TODO: Set a custom error handler so that the http reason is returned in the headers.
+            # See here: http://stackoverflow.com/questions/18081800/python-flask-and-custom-client-error-messages
+            resp = make_response(nwis_head.reason, nwis_head.status_code)
+            return resp
+    else:
+        return ('we will be back soon with national scale stuff')
+
+
 if __name__ == "__main__":
-    app.run()
+    app.run(debug=True)
