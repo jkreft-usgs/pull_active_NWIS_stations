@@ -7,6 +7,10 @@ app = Flask(__name__)
 
 @app.route("/")
 def hello():
+    """
+    I hate not having anything at the root
+    :return:
+    """
     return "Hello World!"
 
 
