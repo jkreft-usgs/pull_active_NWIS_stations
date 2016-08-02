@@ -1,21 +1,8 @@
 from requests import Session
-from cStringIO import StringIO
 import tablib
-from geojson import Feature, Point, FeatureCollection, dumps as geojson_dump
+from geojson import Feature, Point, dumps as geojson_dump
 from copy import deepcopy
-import json
 from pyproj import Proj, transform
-
-big_huc_list = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17',
-                '18', '19', '20', '21']
-
-two_8_digit_hucs = ['03050201', '03180004']
-
-one_8_digit_huc = ['03050201']
-
-one_two_digit_huc = ['03']
-
-three_2_digit_hucs = ['01', '02', '03']
 
 
 site_types_dict = {"ES": "Estuary",
@@ -77,25 +64,6 @@ site_types_dict = {"ES": "Estuary",
                    "LA-VOL": "Volcanic vent"}
 
 
-def process_nwis_data(content):
-    dataset = tablib.Dataset()
-    comments = True
-    definitions = True
-    for line in content.readlines():
-        li = line.strip()
-        if li.startswith("#"): # lets ignore comments
-            pass
-        elif comments and not (li.startswith("#")):  # first row after the comments in the rdb are column headings
-            comments = False
-            headers = li.split('\t')
-            dataset.headers = headers
-        elif comments == False and definitions == True:  # ok now we need to ignore the useless data definitions
-            definitions = False
-        elif comments == False and definitions == False:  # finally we are adding data together
-            row = li.split('\t')
-            dataset.append(row)
-    return dataset
-
 def build_site_dict(station, site_types):
     if station['dec_coord_datum_cd'] == 'NAD83':
         p1 = Proj(init='epsg:26912')
@@ -122,6 +90,7 @@ def build_site_dict(station, site_types):
                 'site_no'])
         return None
 
+
 def build_sites_geojson(sites_data, site_types):
     feature_list = []
     for station in sites_data.dict:
@@ -130,112 +99,12 @@ def build_sites_geojson(sites_data, site_types):
             if feature:
                 feature_list.append(feature)
         except ValueError:
+            # TODO: dump this into logging
             print('ValueError!')
             print(station)
-            print(
-            'url: http://waterdata.usgs.gov/nwis/inventory?agency_code=' + station['agency_cd'] + '&site_no=' + station[
-                'site_no'])
+            print('url: http://waterdata.usgs.gov/nwis/inventory?agency_code=' + station['agency_cd'] +
+                  '&site_no=' + station['site_no'])
     return feature_list
-
-def pull_nwis_data(huc_list):
-    """
-    This pulls NWIS site data, one HUC at a time, and returns a list of geojson feature objects
-    that can be fed into a feature collection building tool
-    :param huc_list:
-    :return:
-    """
-    base_params = {'format': 'rdb',
-                   'siteType': 'ST',
-                   'siteStatus': 'active',
-                   'hasDataTypeCd': 'iv,dv',
-                   }
-    s = Session()
-    total_site_list = []
-    for huc in huc_list:
-        params = deepcopy(base_params)
-        params['huc'] = huc
-        r = s.get('http://waterservices.usgs.gov/nwis/site/', params=params,
-                  headers={'Accept-Encoding': 'gzip,deflate'})
-        if r.status_code == 200:
-            f = StringIO(r.content)
-            dataset = process_nwis_data(f)
-            huc_feature_list = build_sites_geojson(dataset, site_types_dict)
-            total_site_list.extend(huc_feature_list)
-        print('finished huc '+huc)
-
-    return total_site_list
-
-def pull_nwis_data_stream(huc_list):
-    """
-    This pulls NWIS site data, one HUC at a time, and returns a list of geojson feature objects
-    that can be fed into a feature collection building tool.  However, it parses the returned RDB as a stream instead of
-    waiting to download the entire file for each HUC.
-    :param huc_list:
-    :return:
-    """
-    base_params = {'format': 'rdb',
-                   'siteType': 'ST',
-                   'siteStatus': 'active',
-                   'hasDataTypeCd': 'iv,dv',
-                   }
-    s = Session()
-    total_site_list = []
-    for huc in huc_list:
-        params = deepcopy(base_params)
-        params['huc'] = huc
-        r = s.get('http://waterservices.usgs.gov/nwis/site/', params=params,
-                  headers={'Accept-Encoding': 'gzip,deflate'}, stream=True)
-        if r.status_code == 200:
-            dataset = tablib.Dataset()
-            comments = True
-            definitions = True
-            for line in r.iter_lines():
-                li = line.strip()
-                if li.startswith("#"):  # lets ignore comments
-                    pass
-                elif comments and not (li.startswith("#")):  # first row after the comments in the rdb are column headings
-                    comments = False
-                    headers = li.split('\t')
-                    dataset.headers = headers
-                elif comments == False and definitions == True:  # ok now we need to ignore the useless data definitions
-                    definitions = False
-                elif comments == False and definitions == False:  # finally we are adding data together
-                    row = li.split('\t')
-                    dataset.append(row)
-            huc_feature_list = build_sites_geojson(dataset, site_types_dict)
-            total_site_list.extend(huc_feature_list)
-        print('finished huc '+huc+' ('+str(r.status_code)+')')
-
-    return total_site_list
-
-def rdb_generator(params):
-    print 'ummmm'
-    s = Session()
-    r = s.get('http://waterservices.usgs.gov/nwis/site/', params=params,
-              headers={'Accept-Encoding': 'gzip,deflate'}, stream=True)
-
-    print ('rdb start'+str(r.status_code))
-    if r.status_code == 200:
-        dataset = tablib.Dataset()
-        comments = True
-        definitions = True
-        for line in r.iter_lines():
-            li = line.strip()
-            if li.startswith("#"):  # lets ignore comments
-                pass
-            elif comments and not (li.startswith("#")):  # first row after the comments in the rdb are column headings
-                comments = False
-                headers = li.split('\t')
-                dataset.headers = headers
-            elif comments == False and definitions == True:  # ok now we need to ignore the useless data definitions
-                definitions = False
-            elif comments == False and definitions == False:  # finally we are adding data together
-                row = li.split('\t')
-                dataset.append(row)
-                feature = build_sites_geojson(dataset, site_types_dict)
-                if feature:
-                    yield feature[0]
-                dataset.pop()
 
 
 def pull_nwis_data_generator(params, session=None):
@@ -244,8 +113,8 @@ def pull_nwis_data_generator(params, session=None):
     that can be fed into a feature collection building tool.  However, it parses the returned RDB as a stream instead of
     waiting to download the entire file for each HUC. It then yields that geojson object one at a time so that
     something else can do something with it
-    :param huc_list:
-    :return:
+    :param params: the parameter dictionary to send to the NWIS site service
+    :param session: The session that is used to make multiple queries to the NWIS site service
     """
 
     if session is None:
@@ -267,17 +136,15 @@ def pull_nwis_data_generator(params, session=None):
                 comments = False
                 headers = li.split('\t')
                 dataset.headers = headers
-            elif comments == False and definitions == True:  # ok now we need to ignore the useless data definitions
+            elif comments is False and definitions is True:  # ok now we need to ignore the useless data definitions
                 definitions = False
-            elif comments == False and definitions == False:  # finally we are adding data together
+            elif comments is False and definitions is False:  # finally we are adding data together
                 row = li.split('\t')
                 dataset.append(row)
                 feature = build_sites_geojson(dataset, site_types_dict)
                 if feature:
                     yield feature[0]
                 dataset.pop()
-
-
 
 
 def pull_nwis_data_generator_multiple_hucs(huc_list, params):
@@ -296,13 +163,13 @@ def pull_nwis_data_generator_multiple_hucs(huc_list, params):
                 li = line.strip()
                 if li.startswith("#"):  # lets ignore comments
                     pass
-                elif comments and not (li.startswith("#")):  # first row after the comments in the rdb are column headings
+                elif comments and not (li.startswith("#")):  # first row after the comments are column headings
                     comments = False
                     headers = li.split('\t')
                     dataset.headers = headers
-                elif comments == False and definitions == True:  # ok now we need to ignore the useless data definitions
+                elif comments is False and definitions is True:  # ok now we need to ignore the useless data definitions
                     definitions = False
-                elif comments == False and definitions == False:  # finally we are adding data together
+                elif comments is False and definitions is False:  # finally we are adding data together
                     row = li.split('\t')
                     dataset.append(row)
                     feature = build_sites_geojson(dataset, site_types_dict)
@@ -312,22 +179,30 @@ def pull_nwis_data_generator_multiple_hucs(huc_list, params):
             print('finished huc ' + huc)
 
 
-def build_feature_collection(huc_list):
-    nwis_feature_list = pull_nwis_data_stream(huc_list)
-    station_collection = FeatureCollection(nwis_feature_list, crs={"properties": {"name": "urn:ogc:def:crs:EPSG::4326"},
-                                                                   "type": "name"})
-    return station_collection
-
-
-def build_geojson_file(huc_list):
-    geojson_item = build_feature_collection(huc_list)
-    content = geojson_dump(geojson_item)
-    json_content = json.loads(content)
-    with open('data.txt', 'w') as outfile:
-        json.dump(json_content, outfile, sort_keys=False, indent=4, separators=(',', ': '))
-    print('success!')
-
-
-#pull_nwis_data_stream(one_8_digit_huc)
-#build_geojson_file(big_huc_list)
-#build_geojson_file(two_8_digit_hucs)
+def generate_geojson_from_generator(params, huc_list=None):
+    """
+    based on https://blog.al4.co.nz/2016/01/streaming-json-with-flask/
+    A lagging generator to stream JSON so we don't have to hold everything in memory
+    This is a little tricky, as we need to omit the last comma to make valid JSON,
+    thus we use a lagging generator, similar to http://stackoverflow.com/questions/1630320/
+    The lagging generator is fed by
+    """
+    if huc_list:
+        features = pull_nwis_data_generator_multiple_hucs(huc_list, params)
+    else:
+        features = pull_nwis_data_generator(params)
+    try:
+        prev_feature = next(features)  # get first result
+    except StopIteration:
+        # StopIteration here means the length was zero, so yield a valid releases doc and stop
+        yield '{"features": []}'
+        raise StopIteration
+    # We have some features. First, yield the opening json for geojson
+    yield '{"crs":{"type": "name","properties": {"name": "urn:ogc:def:crs:EPSG::4326"}},' \
+          '"type": "FeatureCollection","features": ['
+    # Iterate over the releases
+    for feature in features:
+        yield geojson_dump(prev_feature) + ', '
+        prev_feature = feature
+    # Now yield the last iteration without comma but with the closing brackets
+    yield geojson_dump(prev_feature) + ']}'
