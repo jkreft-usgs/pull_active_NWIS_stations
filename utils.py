@@ -1,7 +1,6 @@
 from requests import Session, get
 import tablib
 from geojson import Feature, Point, dumps as geojson_dump
-from copy import deepcopy
 from pyproj import Proj, transform
 
 
@@ -75,7 +74,7 @@ def build_site_feature(station, site_types):
     :return: a python-encoded geojson feature object, with the lat-long translated to EPSG:4326
     """
     try:
-        if station['dec_coord_datum_cd'] == 'NAD83': # 99.99 of site data is generated as NAD83
+        if station['dec_coord_datum_cd'] == 'NAD83':  # 99.99 of site data is generated as NAD83
             # here we need to translate from NAD83 to web mercator, which is the geoJSON default
             p1 = Proj(init='epsg:26912')
             p2 = Proj(init='epsg:4326')
@@ -93,7 +92,7 @@ def build_site_feature(station, site_types):
                                               'agency_cd'] + '&site_no=' + station['site_no']})
 
             return feature
-        else: # we are lazily only supporting NAD83 output from the site service.
+        else:  # we are lazily only supporting NAD83 output from the site service.
             # TODO: dump this into logging
             print('Not NAD83!!!! ' + station['site_no'] + ' is ' + station['dec_coord_datum_cd'])
             print(station)
@@ -102,13 +101,15 @@ def build_site_feature(station, site_types):
                 station[
                     'site_no'])
             return None
-    except ValueError: #this catches sites that are not populated with essential features (coordinates, etc)
+    except ValueError:  # this catches sites that are not populated with essential features (coordinates, etc)
         # TODO: dump this into logging
         print('ValueError!')
         print(station)
         print('url: http://waterdata.usgs.gov/nwis/inventory?agency_code=' + station['agency_cd'] +
               '&site_no=' + station['site_no'])
         return None
+
+# TODO: combine pull_nwis_data_generator and pull_nwis_data_generator_multiple_hucs
 
 
 def pull_nwis_data_generator(params):
@@ -118,8 +119,8 @@ def pull_nwis_data_generator(params):
     features, such as a function that generates a feature collection
     :param params: the parameter dictionary to send to the NWIS site service
     """
-    r = get('http://waterservices.usgs.gov/nwis/site/', params=params,
-              headers={'Accept-Encoding': 'gzip,deflate'}, stream=True)
+    r = get('http://waterservices.usgs.gov/nwis/site/',
+            params=params, headers={'Accept-Encoding': 'gzip,deflate'}, stream=True)
     if r.status_code == 200:
         dataset = tablib.Dataset()
         comments = True
