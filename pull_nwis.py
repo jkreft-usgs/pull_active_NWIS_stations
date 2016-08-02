@@ -280,14 +280,36 @@ def pull_nwis_data_generator(params, session=None):
 
 
 
-def rdb_generator_multiple_hucs(huc_list, params, session):
-    s = session
-    total_site_list = []
+def pull_nwis_data_generator_multiple_hucs(huc_list, params):
+    s = Session()
     params = deepcopy(params)
     for huc in huc_list:
         params['huc'] = huc
-        rdb_generator(s, params)
-        print('finished huc ' + huc + ' (' + str(r.status_code) + ')')
+        r = s.get('http://waterservices.usgs.gov/nwis/site/', params=params,
+                  headers={'Accept-Encoding': 'gzip,deflate'}, stream=True)
+
+        if r.status_code == 200:
+            dataset = tablib.Dataset()
+            comments = True
+            definitions = True
+            for line in r.iter_lines():
+                li = line.strip()
+                if li.startswith("#"):  # lets ignore comments
+                    pass
+                elif comments and not (li.startswith("#")):  # first row after the comments in the rdb are column headings
+                    comments = False
+                    headers = li.split('\t')
+                    dataset.headers = headers
+                elif comments == False and definitions == True:  # ok now we need to ignore the useless data definitions
+                    definitions = False
+                elif comments == False and definitions == False:  # finally we are adding data together
+                    row = li.split('\t')
+                    dataset.append(row)
+                    feature = build_sites_geojson(dataset, site_types_dict)
+                    if feature:
+                        yield feature[0]
+                    dataset.pop()
+            print('finished huc ' + huc)
 
 
 def build_feature_collection(huc_list):
