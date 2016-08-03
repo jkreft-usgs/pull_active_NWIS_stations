@@ -48,7 +48,17 @@ def sites():
         # OK, we are gonna go for the whole country, hang onto your hats
         huc_list = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16',
                     '17', '18', '19', '20', '21']
-        return Response(generate_geojson_from_generator(args, huc_list), content_type='application/json')
+        # Check to see if there is anything else is wrong with the query
+        check_params = args
+        check_params['huc'] = huc_list[0]
+        nwis_head = head(head('http://waterservices.usgs.gov/nwis/site/', params=check_params))
+        if nwis_head.status_code == 200:
+            return Response(generate_geojson_from_generator(args, huc_list), content_type='application/json')
+        else:
+            resp = make_response(nwis_head.reason, nwis_head.status_code)
+            resp.headers["X-Error-Reason"] = nwis_head.reason
+            return resp
+
 
 
 if __name__ == "__main__":
