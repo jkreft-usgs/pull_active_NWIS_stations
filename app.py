@@ -51,7 +51,7 @@ def sites():
         # Check to see if there is anything else is wrong with the query
         check_params = args
         check_params['huc'] = huc_list[0]
-        nwis_head = head(head('http://waterservices.usgs.gov/nwis/site/', params=check_params))
+        nwis_head = head('http://waterservices.usgs.gov/nwis/site/', params=check_params)
         if nwis_head.status_code == 200:
             return Response(generate_geojson_from_generator(args, huc_list), content_type='application/json')
         else:
