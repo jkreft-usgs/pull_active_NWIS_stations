@@ -64,7 +64,7 @@ site_types_dict = {"ES": "Estuary",
                    "LA-VOL": "Volcanic vent"}
 
 
-def build_site_feature(station, site_types):
+def build_site_feature(station, site_types, period_of_record=False, parameter_code=None):
     """
     This takes a single row of dictionary output from a tablib ordered dict that was generated from a rdb file, and
     returns a python-encoded geojson feature object that can be used either directly, or as an input to a function that
@@ -73,46 +73,54 @@ def build_site_feature(station, site_types):
     :param site_types: a dictionary of NWIS site type codes and their actual meanings.
     :return: a python-encoded geojson feature object, with the lat-long translated to EPSG:4326
     """
-    try:
-        if station['dec_coord_datum_cd'] == 'NAD83':  # 99.99 of site data is generated as NAD83
-            # here we need to translate from NAD83 to web mercator, which is the geoJSON default
-            p1 = Proj(init='epsg:26912')
-            p2 = Proj(init='epsg:4326')
-            x1, y1 = p1(float(station['dec_long_va']), float(station['dec_lat_va']))
-            x2, y2 = transform(p1, p2, x1, y1)
-            # standard pygeoJSON feature generation
-            feature = Feature(geometry=Point((x2, y2)),
-                              properties={"stationName": station['station_nm'],
-                                          "agencyCode": station['agency_cd'],
-                                          "siteNumber": station['site_no'],
-                                          "hucCode": station.get('huc_cd'),
-                                          "SiteTypeCode": station['site_tp_cd'],
-                                          "SiteType": site_types.get(station['site_tp_cd']),
-                                          "url": 'http://waterdata.usgs.gov/nwis/inventory?agency_code=' + station[
-                                              'agency_cd'] + '&site_no=' + station['site_no']})
+    if (period_of_record and station.get('parm_cd') == parameter_code) or (not period_of_record and not parameter_code):
+        try:
+            if station['dec_coord_datum_cd'] == 'NAD83':  # 99.99 of site data is generated as NAD83
+                # here we need to translate from NAD83 to web mercator, which is the geoJSON default
+                p1 = Proj(init='epsg:26912')
+                p2 = Proj(init='epsg:4326')
+                x1, y1 = p1(float(station['dec_long_va']), float(station['dec_lat_va']))
+                x2, y2 = transform(p1, p2, x1, y1)
+                # standard pygeoJSON feature generation
+                properties = {"stationName": station['station_nm'],
+                              "agencyCode": station['agency_cd'],
+                              "siteNumber": station['site_no'],
+                              "hucCode": station.get('huc_cd'),
+                              "siteTypeCode": station['site_tp_cd'],
+                              "siteType": site_types.get(station['site_tp_cd']),
+                              "url": 'http://waterdata.usgs.gov/nwis/inventory?agency_code=' + station[
+                                  'agency_cd'] + '&site_no=' + station['site_no']}
+                if period_of_record and station.get('parm_cd') == parameter_code:
+                    properties['start'] = station.get('begin_date')
+                    properties['end'] = station.get('end_date')
+                    properties['parameterCode'] = station.get('parm_cd')
+                    properties['sampleCount'] = station.get('count_nu')
+                feature = Feature(geometry=Point((x2, y2)),
+                                  properties=properties)
 
-            return feature
-        else:  # we are lazily only supporting NAD83 output from the site service.
+                return feature
+            else:  # we are lazily only supporting NAD83 output from the site service.
+                # TODO: dump this into logging
+                print('Not NAD83!!!! ' + station['site_no'] + ' is ' + station['dec_coord_datum_cd'])
+                print(station)
+                print(
+                    'url: http://waterdata.usgs.gov/nwis/inventory?agency_code=' + station['agency_cd'] + '&site_no=' +
+                    station[
+                        'site_no'])
+                return None
+        except ValueError:  # this catches sites that are not populated with essential features (coordinates, etc)
             # TODO: dump this into logging
-            print('Not NAD83!!!! ' + station['site_no'] + ' is ' + station['dec_coord_datum_cd'])
+            print('ValueError!')
             print(station)
-            print(
-                'url: http://waterdata.usgs.gov/nwis/inventory?agency_code=' + station['agency_cd'] + '&site_no=' +
-                station[
-                    'site_no'])
+            print('url: http://waterdata.usgs.gov/nwis/inventory?agency_code=' + station['agency_cd'] +
+                  '&site_no=' + station['site_no'])
             return None
-    except ValueError:  # this catches sites that are not populated with essential features (coordinates, etc)
-        # TODO: dump this into logging
-        print('ValueError!')
-        print(station)
-        print('url: http://waterdata.usgs.gov/nwis/inventory?agency_code=' + station['agency_cd'] +
-              '&site_no=' + station['site_no'])
+    else:
         return None
-
 # TODO: combine pull_nwis_data_generator and pull_nwis_data_generator_multiple_hucs
 
 
-def pull_nwis_data_generator(params):
+def pull_nwis_data_generator(params, parameter_code=None, period_of_record=False):
     """
     This iterable function (aka generator) pulls NWIS site rdb data for a single call, strips the useless stuff out,
     and then row-by-row it kicks out a python-encoded geojson feature object to feed something else that needs the
@@ -138,13 +146,13 @@ def pull_nwis_data_generator(params):
             elif comments is False and definitions is False:  # finally we are adding data together
                 row = li.split('\t')
                 dataset.append(row)
-                feature = build_site_feature(dataset.dict[0], site_types_dict)
+                feature = build_site_feature(dataset.dict[0], site_types_dict, parameter_code=parameter_code, period_of_record=period_of_record)
                 if feature:
                     yield feature
                 dataset.pop()
 
 
-def pull_nwis_data_generator_multiple_hucs(huc_list, params):
+def pull_nwis_data_generator_multiple_hucs(huc_list, params, parameter_code=None, period_of_record=False):
     """
     This generator is really similar to pull_nwis_data_generator, but it makes multiple calls to the NWIS site service
     to make it possible to yield national scale datasets. It calls, huc-by-huc, feeding the data into a downstream
@@ -176,14 +184,14 @@ def pull_nwis_data_generator_multiple_hucs(huc_list, params):
                 elif comments is False and definitions is False:  # finally we are adding data together
                     row = li.split('\t')
                     dataset.append(row)
-                    feature = build_site_feature(dataset.dict[0], site_types_dict)
+                    feature = build_site_feature(dataset.dict[0], site_types_dict, parameter_code=parameter_code, period_of_record=period_of_record)
                     if feature:
                         yield feature
                     dataset.pop()
             print('finished huc ' + huc)
 
 
-def generate_geojson_from_generator(params, huc_list=None):
+def generate_geojson_from_generator(params, huc_list=None, parameter_code=None, period_of_record=False):
     """
     based on https://blog.al4.co.nz/2016/01/streaming-json-with-flask/
     A lagging generator to stream JSON so we don't have to hold everything in memory
@@ -193,9 +201,9 @@ def generate_geojson_from_generator(params, huc_list=None):
     NWIS site service, or a huc-by-huc call for national or larger scale data.
     """
     if huc_list:
-        features = pull_nwis_data_generator_multiple_hucs(huc_list, params)
+        features = pull_nwis_data_generator_multiple_hucs(huc_list, params, parameter_code, period_of_record)
     else:
-        features = pull_nwis_data_generator(params)
+        features = pull_nwis_data_generator(params, parameter_code, period_of_record)
     try:
         prev_feature = next(features)  # get first result
     except StopIteration:
